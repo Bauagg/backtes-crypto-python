@@ -39,7 +39,9 @@ backtes-crypto/
 └── requirements.txt
 ```
 
-## Setup
+## Setup (sekali saja)
+
+Buat virtual environment dan install dependency:
 
 ```powershell
 python -m venv venv
@@ -47,21 +49,51 @@ venv\Scripts\pip install -r requirements.txt
 venv\Scripts\pip install -e .
 ```
 
-## Latih Model (sekali)
+## Aktifkan venv
+
+Setiap kali mau kerja di proyek ini, aktifkan dulu venv-nya:
 
 ```powershell
-venv\Scripts\python train_v5_model.py
+# PowerShell / CMD
+venv\Scripts\activate
+
+# Git Bash
+source venv/Scripts/activate
 ```
 
-Otomatis pakai **semua coin** di `data/raw/` (scalable — tambah coin baru, latih ulang).
+Kalau berhasil, prompt terminal akan berubah jadi diawali `(venv)`.
 
-## Jalankan API
+> Jika PowerShell menolak dengan error "running scripts is disabled", jalankan sekali:
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+## Jalankan Proyek
+
+Setelah venv aktif (prompt ada `(venv)`), cukup panggil `python` biasa:
 
 ```powershell
-venv\Scripts\python -m uvicorn api:app --host 0.0.0.0 --port 8000
+# 1. Latih model (sekali; ulangi kalau tambah coin baru di data/raw/)
+python train_v5_model.py
+
+# 2. Jalankan API — ini yang dipanggil backend Rust
+python -m uvicorn api:app --host 0.0.0.0 --port 8000
 ```
 
-Dokumentasi interaktif: `http://localhost:8000/docs`
+Dokumentasi interaktif API: `http://localhost:8000/docs`
+Hentikan server API: tekan **Ctrl + C** di terminal.
+
+> **Tanpa aktivasi venv?** Bisa juga langsung pakai path lengkap tanpa `activate`:
+> `venv\Scripts\python train_v5_model.py`
+
+## Keluar dari venv
+
+Kalau sudah selesai dan mau keluar dari virtual environment:
+
+```powershell
+deactivate
+```
+
+Prompt `(venv)` akan hilang — tanda sudah keluar. Untuk masuk lagi nanti, ulangi
+langkah **Aktifkan venv** di atas.
 
 ## Dokumentasi Lengkap
 
