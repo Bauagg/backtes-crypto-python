@@ -1,0 +1,43 @@
+{
+  "strategy": "V5",
+  "trained_coins": [
+    "ADAUSDT",
+    "AVAXUSDT",
+    "BNBUSDT",
+    "BTCUSDT",
+    "DOGEUSDT",
+    "ETHUSDT",
+    "HBARUSDT",
+    "SOLUSDT",
+    "SUIUSDT",
+    "XRPUSDT"
+  ],
+  "n_training_signals": 1002,
+  "feature_cols": [
+    "rsi",
+    "volume_ratio",
+    "fng_value",
+    "relative_strength",
+    "confirm_count",
+    "ma_diff_pct"
+  ],
+  "bottoming_rsi": 30,
+  "bottoming_fgi": 25,
+  "ml_threshold": 0.55,
+  "forward_horizon": 5,
+  "stop_loss": -0.02,
+  "take_profit": 0.05,
+  "correlation_max": 0.7,
+  "rf_params": {
+    "n_estimators": 100,
+    "max_depth": 3,
+    "min_samples_leaf": 40,
+    "random_state": 42
+  },
+  "walk_forward": {
+    "in_sample": 0.5855018587360595,
+    "out_sample": 0.5280172413793104,
+    "gap": 0.057484617356749146
+  },
+  "trained_at": "2026-07-10T18:52:22.645038"
+}
