@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 import zipfile
 from datetime import date, datetime
 from pathlib import Path
@@ -28,7 +29,11 @@ import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
-BASE_URL = "https://data.binance.vision/data/spot/monthly/klines"
+# URL arsip dibaca dari environment (.env), dengan default kalau tidak diset.
+BASE_URL = os.getenv(
+    "BINANCE_VISION_URL",
+    "https://data.binance.vision/data/spot/monthly/klines",
+)
 
 # Binance Vision monthly kline CSVs have no header; these are the documented columns.
 BINANCE_RAW_COLUMNS = [

@@ -7,6 +7,7 @@ access on every run.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -14,6 +15,9 @@ import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CACHE_PATH = PROJECT_ROOT / "data" / "raw" / "fear_greed_index.csv"
+
+# URL API dibaca dari environment (.env), dengan default kalau tidak diset.
+FNG_API_URL = os.getenv("FNG_API_URL", "https://api.alternative.me/fng/")
 
 FNG_EXTREME_FEAR = 25
 FNG_EXTREME_GREED = 75
@@ -26,7 +30,7 @@ def fetch_fear_greed_index(limit: int = 0) -> pd.DataFrame:
     by date with a single `fng_value` column (0-100).
     """
     resp = requests.get(
-        "https://api.alternative.me/fng/",
+        FNG_API_URL,
         params={"limit": limit, "format": "json"},
         timeout=30,
     )

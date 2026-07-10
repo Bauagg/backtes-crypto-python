@@ -66,6 +66,24 @@ Kalau berhasil, prompt terminal akan berubah jadi diawali `(venv)`.
 > Jika PowerShell menolak dengan error "running scripts is disabled", jalankan sekali:
 > `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 
+## Konfigurasi Port (.env)
+
+Salin `.env.example` jadi `.env`, lalu atur host & port di sana:
+
+```powershell
+copy .env.example .env
+```
+
+Isi `.env`:
+```
+API_HOST=0.0.0.0
+API_PORT=8001
+```
+
+> **Penting:** backend Rust jalan di port **8000**, jadi API Python pakai port
+> lain (mis. **8001**) agar tidak bentrok. Mau ganti port? Cukup ubah `API_PORT`
+> di `.env` — tidak perlu ubah kode.
+
 ## Jalankan Proyek
 
 Setelah venv aktif (prompt ada `(venv)`), cukup panggil `python` biasa:
@@ -75,10 +93,11 @@ Setelah venv aktif (prompt ada `(venv)`), cukup panggil `python` biasa:
 python train_v5_model.py
 
 # 2. Jalankan API — ini yang dipanggil backend Rust
-python -m uvicorn api:app --host 0.0.0.0 --port 8000
+#    (otomatis baca host/port dari .env)
+python api.py
 ```
 
-Dokumentasi interaktif API: `http://localhost:8000/docs`
+Dokumentasi interaktif API: `http://localhost:8001/docs` (sesuai `API_PORT`)
 Hentikan server API: tekan **Ctrl + C** di terminal.
 
 > **Tanpa aktivasi venv?** Bisa juga langsung pakai path lengkap tanpa `activate`:
