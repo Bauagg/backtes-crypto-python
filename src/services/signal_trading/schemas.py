@@ -7,7 +7,7 @@ class SignalRequest(BaseModel):
     """Dikirim backend Rust sekali sehari (setelah candle harian close, 00:00 UTC)."""
     modal: float = Field(..., gt=0, examples=[1_500_000],
                          description="Total nilai akun saat ini dalam Rupiah (coin + USDT). "
-                                     "< Rp1.500.000 -> strategi BTC-60, >= Rp1.500.000 -> V2-60.")
+                                     "< Rp1.500.000 -> strategi BTC-60, >= Rp1.500.000 -> V23.")
     modal_awal: float | None = Field(None, gt=0, examples=[1_500_000],
                                      description="Modal awal (Rp) untuk kill switch: kalau modal <= 70% modal_awal, "
                                                  "semua dijual ke USDT dan bot harus berhenti.")

@@ -1,9 +1,12 @@
 """Sinyal entry harian untuk bot trading (dieksekusi backend Rust).
 
 Pemilihan strategi berdasarkan modal:
-  modal <  Rp1.500.000 -> BTC-60 (notebook 17): BTC saja, 60% modal, filter pasar H8b.
-  modal >= Rp1.500.000 -> V2-60  (notebook 20): 8 coin porsi inverse-volatilitas (DOGE maks 10%),
-                                    60% modal, filter pasar H8b.
+  modal <  Rp1.500.000 -> BTC-60 (notebook 17): BTC saja, 60% modal tetap, filter pasar H8b.
+  modal >= Rp1.500.000 -> V23    (notebook 20, 23, 25; dulu disebut V2-60): 8 coin porsi
+                                    inverse-volatilitas (DOGE maks 10%), filter pasar H8b,
+                                    eksposur ke coin TIDAK tetap -- volatility targeting (target
+                                    20%/tahun, lookback 20 hari, maks 100%): market liar ->
+                                    eksposur mengecil duluan, sebelum harga sempat jatuh jauh.
 Aturan eksekusi sama dengan backtest: keputusan dari candle close hari D, eksekusi di open hari D+1;
 rebalance kalau D+1 tanggal 1, filter pasar berubah, atau coin yang dipegang tidak sesuai target;
 order < 5 USDT dilewati; kill switch kalau modal <= 70% modal awal.
@@ -28,7 +31,7 @@ STALE_DAYS = 2              # candle lebih tua dari ini -> peringatan data terti
 
 def _pick_strategy(modal: float) -> tuple[str, list[str], str]:
     if modal >= V2_MIN_CAPITAL_IDR:
-        return "V2-60", al.V2_COINS, f"modal Rp{modal:,.0f} >= Rp{V2_MIN_CAPITAL_IDR:,.0f}"
+        return "V23", al.V2_COINS, f"modal Rp{modal:,.0f} >= Rp{V2_MIN_CAPITAL_IDR:,.0f}"
     return "BTC-60", [al.BTC], f"modal Rp{modal:,.0f} < Rp{V2_MIN_CAPITAL_IDR:,.0f}"
 
 
@@ -88,13 +91,18 @@ def get_signal(req: SignalRequest) -> dict:
     kill = bool(req.modal_awal and req.modal <= req.modal_awal * (1 - al.KILL_SWITCH_DRAWDOWN))
 
     # ---- porsi target (dari total modal) ----
-    if strategy == "V2-60":
-        base = _row(al.inverse_vol_weights(closes[coins], al.VOL_LOOKBACK, al.V2_CAPS), date)
+    if strategy == "V23":
+        w_series = al.inverse_vol_weights(closes[coins], al.VOL_LOOKBACK, al.V2_CAPS)
+        base = _row(w_series, date)
+        basket_vol_series = al.basket_volatility(al.basket_return(closes[coins], w_series))
+        basket_vol = float(basket_vol_series.loc[date])
+        exposure = float(al.vol_target_exposure(basket_vol_series).loc[date])
     else:
         base = {al.BTC: 1.0}
+        basket_vol, exposure = None, al.INVESTED_PORTION
     vol = _row(closes[list(base)].pct_change().rolling(al.VOL_LOOKBACK).std(), date)
     active = risk_on and not kill
-    weights = {s: float(v) * al.INVESTED_PORTION * (1.0 if active else 0.0) for s, v in base.items()}
+    weights = {s: float(v) * exposure * (1.0 if active else 0.0) for s, v in base.items()}
     last_close = _row(closes, date)
     prices = {s: float(last_close[s]) for s in weights}
 
@@ -214,6 +222,13 @@ def get_signal(req: SignalRequest) -> dict:
         "kill_switch": {
             "aktif": kill,
             "batas_idr": _num(req.modal_awal * (1 - al.KILL_SWITCH_DRAWDOWN), 0) if req.modal_awal else None,
+        },
+        "volatility_targeting": {
+            "aktif": strategy == "V23",
+            "volatilitas_basket_20h": _num(basket_vol, 4),
+            "target_volatilitas_tahunan": al.TARGET_VOL,
+            "eksposur_maksimum": al.MAX_EXPOSURE,
+            "eksposur_dipakai": _num(exposure, 4),
         },
         "modal": {
             "modal_idr": _num(req.modal, 0), "kurs_usdt_idr": _num(kurs, 2),

@@ -16,12 +16,19 @@ MARKET_SMA = 100
 FGI_WINDOW = 14
 FGI_THRESHOLD = 50
 
-VOL_LOOKBACK = 60                 # hari untuk volatilitas inverse-vol
-INVESTED_PORTION = 0.60           # 60% modal di coin, 40% USDT (V2-60 & BTC-60)
+VOL_LOOKBACK = 60                 # hari untuk volatilitas inverse-vol (porsi relatif antar-coin)
+INVESTED_PORTION = 0.60           # 60% modal di coin, 40% USDT (BTC-60; V23 pakai vol targeting di bawah)
 V2_COINS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "LINKUSDT", "TRXUSDT", "DOGEUSDT"]
 V2_CAPS = {"DOGEUSDT": 0.10}      # porsi maksimum DOGE (dari total bagian coin)
 MIN_ORDER_USDT = 5.0              # order minimum Binance spot
 KILL_SWITCH_DRAWDOWN = 0.30       # modal turun 30% dari modal awal -> berhenti
+
+# Volatility targeting (notebook 23, 25) -- eksposur V23 ke coin TIDAK tetap 60%, menyesuaikan
+# diri ke volatilitas portofolio yang sedang terjadi. Dikombinasikan dengan filter_market (H8b) di
+# service.py, bukan pengganti. Belum dipakai untuk BTC-60 (modal < Rp1.500.000, belum diriset ulang).
+TARGET_VOL = 0.20                 # target volatilitas tahunan portofolio coin
+VOL_TARGET_LOOKBACK = 20          # hari, mengukur volatilitas basket yang sedang terjadi
+MAX_EXPOSURE = 1.0                # eksposur maksimum ke coin (spot, tanpa leverage)
 
 
 def market_filter(btc_close: pd.Series, fgi: pd.Series) -> pd.DataFrame:
@@ -60,3 +67,22 @@ def inverse_vol_weights(closes: pd.DataFrame, lookback: int = VOL_LOOKBACK,
     raw = (1 / vol).replace([np.inf, -np.inf], np.nan)
     w = raw.div(raw.sum(axis=1), axis=0).fillna(0.0)
     return apply_caps(w, caps)
+
+
+def basket_return(closes: pd.DataFrame, weights: pd.DataFrame) -> pd.Series:
+    """Return harian basket inverse-vol TANPA skala eksposur apapun -- dipakai cuma buat mengukur
+    volatilitas yang sedang terjadi (notebook 23), bukan return portofolio sebenarnya."""
+    return (weights * closes.pct_change()).sum(axis=1)
+
+
+def basket_volatility(basket_ret: pd.Series, lookback: int = VOL_TARGET_LOOKBACK) -> pd.Series:
+    """Volatilitas tahunan basket yang sedang terjadi (realized, bukan tersirat)."""
+    return basket_ret.rolling(lookback, min_periods=lookback).std() * np.sqrt(365)
+
+
+def vol_target_exposure(basket_vol: pd.Series, target_vol: float = TARGET_VOL,
+                        max_exposure: float = MAX_EXPOSURE) -> pd.Series:
+    """Eksposur ke coin = target_vol / volatilitas basket yang sedang terjadi, dibatasi max_exposure
+    (spot, tanpa leverage). Market tenang -> eksposur naik; market liar -> eksposur mengecil duluan,
+    sebelum harga sempat jatuh jauh. Dikalikan dengan market_filter (H8b) di service.py, bukan ganti."""
+    return (target_vol / basket_vol).clip(lower=0.0, upper=max_exposure).fillna(0.0)

@@ -4,10 +4,10 @@
 dari besar modal, target porsi tiap coin, dan daftar order yang harus dijalankan. Fitur aplikasi
 lain (login, chart, portofolio, log trade, eksekusi order) diurus backend Rust.
 
-| Modal | Strategi (hasil riset notebook 13–20) |
+| Modal | Strategi (hasil riset notebook 13–25) |
 |---|---|
 | < Rp1.500.000 | **BTC-60**: BTC saja, 60% modal, filter pasar BTC/Fear & Greed |
-| ≥ Rp1.500.000 | **V2-60**: 8 coin porsi inverse-volatilitas, 60% modal, filter pasar, rebalance bulanan |
+| ≥ Rp1.500.000 | **V23** (dulu V2-60): 8 coin porsi inverse-volatilitas, filter pasar, eksposur dinamis via volatility targeting (bukan 60% tetap), rebalance bulanan |
 
 Endpoint `GET /recommendations` (strategi lama V5) tetap ada sebagai informasi indikator coin.
 
@@ -47,7 +47,7 @@ backtes-crypto/
 │   │   ├── app_error.py                 # NotFoundError, UnprocessableError + handler
 │   │   └── api_response.py              # bersihkan nilai untuk JSON
 │   ├── strategy/                        # logika inti strategi (murni, tanpa HTTP/DB)
-│   │   ├── allocation.py                # ★ filter pasar H8b, porsi inverse-vol (BTC-60 / V2-60)
+│   │   ├── allocation.py                # ★ filter pasar H8b, porsi inverse-vol, vol targeting (BTC-60 / V23)
 │   │   ├── v5.py                        # strategi V5 (gate, scoring, training, backtest)
 │   │   ├── backtest_engine.py           # simulasi SL/TP day-by-day
 │   │   ├── indicators/                  # MA, RSI, Volume, ATR, Relative Strength, FGI
