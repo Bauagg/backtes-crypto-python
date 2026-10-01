@@ -3,7 +3,8 @@
 Endpoint:
   GET  /health           -> cek API hidup
   POST /signal           -> sinyal trading harian untuk bot (BTC-60 / V2-60 dari modal) + daftar order
-  GET  /recommendations  -> top-10 coin rekomendasi V5 (informasi, bukan sinyal bot)
+  GET  /recommendations/momentum          -> daftar pantauan harian 5-10 coin momentum (riset 01-06)
+  GET  /recommendations/momentum/history  -> paper trading: rekomendasi sebelumnya + hasilnya
 
 Jalankan dari root project:
   python main.py
@@ -22,7 +23,6 @@ from src.config.logger import get_logger
 from src.config.settings import settings
 from src.databases import ping
 from src.router import api_router
-from src.services.recommendation.service import load_model, load_snapshot
 from src.utils.app_error import register_error_handlers
 
 logger = get_logger("main")
@@ -37,10 +37,6 @@ async def lifespan(_app: FastAPI):
         logger.error("Gagal konek database: %s", e)
         raise
     logger.info("Database connected successfully")
-
-    load_model()
-    logger.info("Model V5 dimuat")
-    load_snapshot()
     yield
 
 

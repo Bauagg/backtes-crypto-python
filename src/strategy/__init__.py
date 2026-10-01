@@ -1,4 +1,4 @@
-"""Logika inti strategi V5 (murni, tanpa I/O HTTP/DB).
+"""Logika inti strategi (murni, tanpa I/O HTTP/DB).
 
-Dipakai backend (src/services) untuk scoring & backtest, dan notebooks untuk training/analisis.
+allocation.py -> POST /signal (BTC-60 / V23); momentum.py -> GET /recommendations/momentum.
 """

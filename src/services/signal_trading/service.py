@@ -49,7 +49,7 @@ def _load(coins: list[str], date: pd.Timestamp | None):
     since = anchor - pd.Timedelta(days=HISTORY_DAYS)
     candles = repository.find_daily_candles(sorted(set(coins) | {al.BTC}), since)
     if al.BTC not in candles:
-        raise NotFoundError("Candle BTCUSDT tidak ada di market_candles -- dibutuhkan untuk filter pasar")
+        raise NotFoundError("Candle BTCUSDT tidak ada di candle_ohlcv -- dibutuhkan untuk filter pasar")
     missing = [s for s in coins if s not in candles]
     closes = pd.DataFrame({s: d["close"] for s, d in candles.items()}).sort_index()
     fgi = repository.find_fear_greed(since - pd.Timedelta(days=30))

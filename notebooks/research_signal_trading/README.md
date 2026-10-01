@@ -162,8 +162,10 @@ cd notebooks/research_signal_trading
 - Notebook mencari folder project otomatis, jadi bisa dijalankan dari lokasi mana pun di dalam project.
 - Mesin backtest bersama ada di `notebooks/research/` (`single_position.py`, `portfolio.py`);
   jangan dihapus — notebook 08–20 bergantung padanya.
-- **03 & 04**: notebook lama, sebagian sel punya error bawaan (dibuat sebelum restrukturisasi);
-  hasil yang tersimpan tetap valid sebagai catatan.
+- **03, 04, 06 = arsip V5, tidak bisa dijalankan ulang**: kode V5 (`src/strategy/v5.py`, `scoring/`,
+  `backtest_engine.py`, indikator selain ATR) dan model `models/` sudah dihapus (1 Okt 2026) karena V5
+  ditolak dan tidak dipakai backend lagi. Hasil yang tersimpan di notebook tetap valid sebagai catatan
+  (lihat git history kalau perlu kodenya).
 - **16**: mengambil data live CoinGecko & Coinbase — hasil menjalankan ulang akan sedikit berbeda.
 - Dashboard visual V2-60 dibuat dari hasil notebook 20 (`v2_60_dashboard.json`); versi
   V2-60+VolTargeting dari notebook 25 (`v23_voltargeting_dashboard.json`), skema JSON sama + field

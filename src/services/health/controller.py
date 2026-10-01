@@ -1,9 +1,10 @@
-from src.services.recommendation.service import is_model_loaded, peek_snapshot
+from src.databases import ping
 
 
 def health():
-    snapshot = peek_snapshot()
-    return {"status": "ok",
-            "coins_loaded": len(snapshot.coin_dfs) if snapshot else 0,
-            "model_loaded": is_model_loaded(),
-            "data_source": "database"}
+    try:
+        ping()
+        db = "connected"
+    except Exception:
+        db = "disconnected"
+    return {"status": "ok" if db == "connected" else "degraded", "database": db, "data_source": "database"}
