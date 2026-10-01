@@ -1,12 +1,5 @@
 [project]
 name = "crypto-backtest"
 version = "0.1.0"
-description = "Backtest engine for the 5-factor crypto scoring strategy"
+description = "Backend FastAPI strategi crypto V5 (src/) + analisis & training (notebooks/)"
 requires-python = ">=3.11"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
