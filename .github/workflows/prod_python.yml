@@ -73,7 +73,8 @@ jobs:
           cache-dependency-path: requirements-api.txt
 
       - name: Install dependency runtime
-        run: pip install -r requirements-api.txt ruff pip-audit
+        # httpx2 = client HTTP untuk TestClient Starlette (khusus tes, tidak ikut image Docker).
+        run: pip install -r requirements-api.txt ruff pip-audit httpx2
 
       - name: Lint (ruff)
         run: ruff check main.py src --select E9,F63,F7,F82 --output-format github
