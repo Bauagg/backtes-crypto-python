@@ -23,6 +23,9 @@ class Settings:
     db_connect_timeout: int   # detik per percobaan koneksi DB
     market_cache_ttl: int     # detik sebelum data pasar dari DB dimuat ulang
     usdt_idr_rate: float      # kurs default IDR per USDT kalau request tidak mengirim kurs
+    api_key: str | None       # kalau diisi, semua endpoint (kecuali /health) wajib header X-API-Key
+    cors_origins: tuple[str, ...]  # origin browser yang boleh memanggil API; kosong = CORS mati
+    enable_docs: bool         # /docs & /openapi.json; matikan di produksi
 
 
 settings = Settings(
@@ -32,4 +35,7 @@ settings = Settings(
     db_connect_timeout=int(os.getenv("DB_CONNECT_TIMEOUT", "5")),
     market_cache_ttl=int(os.getenv("MARKET_CACHE_TTL", "3600")),
     usdt_idr_rate=float(os.getenv("USDT_IDR_RATE", "16300")),
+    api_key=os.getenv("API_KEY") or None,
+    cors_origins=tuple(o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()),
+    enable_docs=os.getenv("ENABLE_DOCS", "true").strip().lower() in ("1", "true", "yes"),
 )

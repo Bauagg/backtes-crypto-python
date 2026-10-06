@@ -106,6 +106,9 @@ source venv/Scripts/activate   # Git Bash
 | `DB_CONNECT_TIMEOUT` | batas waktu koneksi DB (detik, default 5) |
 | `USDT_IDR_RATE` | kurs default Rp per USDT untuk `/signal` kalau request tidak mengirim kurs (default 16300) |
 | `FNG_API_URL`, `BINANCE_VISION_URL` | sumber data untuk notebooks |
+| `API_KEY` | kalau diisi, semua endpoint kecuali `/health` wajib header `X-API-Key`. **Wajib diisi di produksi** |
+| `CORS_ORIGINS` | origin browser yang boleh memanggil API (dipisah koma). Kosong = CORS mati (normal untuk server-ke-server) |
+| `ENABLE_DOCS` | `false` di produksi untuk mematikan `/docs` & `/openapi.json` (default `true`) |
 
 ## Jalankan Backend
 
@@ -118,7 +121,8 @@ uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
 Saat start, backend cek koneksi DB dulu. **Kalau DB tidak bisa dihubungi, server tidak jalan**
-(sama seperti template Express). Dokumentasi interaktif: `http://localhost:<API_PORT>/docs`.
+(sama seperti template Express). Sesi DB dibuka **read-only** dengan batas waktu query 15 detik, jadi Python
+tidak bisa menulis ke DB Rust walaupun ada bug. Dokumentasi interaktif: `http://localhost:<API_PORT>/docs`.
 
 ## Analisis (notebooks)
 

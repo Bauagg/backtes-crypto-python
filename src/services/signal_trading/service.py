@@ -74,7 +74,7 @@ def get_signal(req: SignalRequest) -> dict:
     closes, fgi, missing = _load(coins, pd.Timestamp(req.tanggal) if req.tanggal else None)
     if missing:
         raise NotFoundError(f"Candle tidak ada di database untuk: {missing}")
-    date = _signal_date(closes, coins, req.tanggal)
+    date = _signal_date(closes, coins, req.tanggal.isoformat() if req.tanggal else None)
     closes = closes.loc[:date]
     if len(closes[al.BTC].dropna()) < al.MARKET_SMA + 1:
         raise UnprocessableError(f"Histori BTC kurang dari {al.MARKET_SMA + 1} hari untuk SMA{al.MARKET_SMA}")

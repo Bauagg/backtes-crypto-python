@@ -10,6 +10,8 @@ import psycopg
 
 from src.config.settings import settings
 
+STATEMENT_TIMEOUT_MS = 15_000
+
 
 def get_database_url() -> str:
     """Ambil DATABASE_URL dari settings; error jelas kalau belum diset."""
@@ -25,8 +27,15 @@ def get_connection(url: str | None = None) -> psycopg.Connection:
 
     Tanpa connect_timeout, koneksi ke DB yang mati bisa menggantung >2 menit tanpa error.
     Dengan timeout, gagal cepat dengan psycopg.OperationalError.
+    Sesi dibuka READ-ONLY: Python tidak pernah boleh menulis ke DB milik backend Rust.
     """
-    return psycopg.connect(url or get_database_url(), connect_timeout=settings.db_connect_timeout)
+    # default_transaction_read_only: lapisan pengaman kedua -- walau ada bug, sesi ini tidak bisa menulis DB Rust.
+    # statement_timeout: query yang macet dihentikan, tidak menggantung request.
+    return psycopg.connect(
+        url or get_database_url(),
+        connect_timeout=settings.db_connect_timeout,
+        options=f"-c default_transaction_read_only=on -c statement_timeout={STATEMENT_TIMEOUT_MS}",
+    )
 
 
 def ping(url: str | None = None) -> bool:

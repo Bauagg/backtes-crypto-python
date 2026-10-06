@@ -25,7 +25,7 @@ Python tidak menyimpan state apa pun. Semua jawaban dihitung ulang dari DB setia
 |---|---|
 | Base URL | `http://<host>:8080` (port dari `.env` `API_PORT`; Rust sendiri di port 8000) |
 | Format | JSON, UTF-8 |
-| Auth | belum ada — jalankan di jaringan internal, jangan dibuka ke publik |
+| Auth | header **`X-API-Key: <API_KEY>`** di semua request kecuali `/health` (aktif kalau `API_KEY` diisi di `.env` Python). Salah/tidak ada → **401** |
 | Dokumentasi interaktif | `http://<host>:8080/docs` (Swagger, bisa coba langsung) |
 | Menjalankan | `python main.py` atau `uvicorn main:app --host 0.0.0.0 --port 8080` |
 
@@ -103,6 +103,9 @@ Python yang memutuskan (strategi, beli/jual, kill switch).
 | `posisi` | object `{simbol: qty}` | disarankan | saldo Binance | **jumlah coin (qty)**, bukan nilai. Saldo 0 tidak perlu dikirim. Kalau field ini dikirim, response berisi `order` |
 | `cash_usdt` | number ≥ 0 | disarankan | saldo Binance | USDT bebas (tidak terkunci di order) |
 | `tanggal` | `"YYYY-MM-DD"` | – | — | **jangan dikirim di produksi** (default = candle terakhir). Hanya untuk tes/replay |
+
+Batas validasi (di luar ini → 422): `modal`/`modal_awal` 0 < x ≤ 10¹³ · `kurs_usdt_idr` 1.000–1.000.000 ·
+`cash_usdt` 0–10¹² · `posisi` maks 100 coin, kunci = huruf/angka 2–20 karakter, qty ≥ 0 · `NaN`/`Infinity` ditolak.
 
 Kirim `posisi: {}` kalau user belum punya coin (misal hari pertama) — tetap dapat daftar order BUY.
 
@@ -236,6 +239,7 @@ pub struct SignalResponse {
 pub async fn fetch_signal(base_url: &str, body: &SignalRequest) -> anyhow::Result<SignalResponse> {
     let res = reqwest::Client::new()
         .post(format!("{base_url}/signal"))
+        .header("X-API-Key", std::env::var("PYTHON_API_KEY")?)   // sama dengan API_KEY di .env Python
         .json(body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -249,6 +253,50 @@ pub async fn fetch_signal(base_url: &str, body: &SignalRequest) -> anyhow::Resul
 
 Field response lain (`filter_pasar`, `alokasi_target`, `volatility_targeting`, `modal`) boleh ditambahkan ke
 struct kalau dibutuhkan untuk dashboard — serde mengabaikan field yang tidak dideklarasikan.
+
+### 4.7 Aturan posisi: apakah bot beli lagi setiap hari?
+
+**Tidak.** `/signal` bukan sinyal "beli sekarang" per hari — isinya **target portofolio** (porsi ideal tiap coin).
+Setiap hari Python membandingkan **posisi yang sedang dipegang** (`posisi` di body) dengan target:
+
+```
+Hari 1  risk-on, user belum punya coin   → order BUY 8 coin sesuai porsi
+Hari 2  masih risk-on, posisi = target   → perlu_rebalance: false → TIDAK beli lagi
+Hari 3  sama                             → tidak ada order
+...     (coin dipegang terus, tidak ada batas hari)
+Tgl 1   jadwal rebalance bulanan         → order kecil BUY/SELL supaya porsi kembali ke target
+Hari X  pasar berubah jadi risk-off      → order SELL semua → pegang USDT
+Hari Y  pasar risk-on lagi               → order BUY lagi
+Kapan saja  modal <= 70% modal_awal      → kill switch: SELL semua, bot berhenti
+```
+
+Order hanya muncul kalau salah satu terjadi (lihat `alasan_rebalance`):
+
+| Pemicu | Contoh `alasan_rebalance` |
+|---|---|
+| Jadwal bulanan (eksekusi tanggal 1) | `"jadwal rebalance bulanan (2026-10-01 tanggal 1)"` |
+| Filter pasar berubah (risk-on ↔ risk-off) | `"filter pasar berubah mati"` |
+| Posisi tidak sesuai target (coin yang harusnya dipegang belum ada, atau sebaliknya) | `"posisi tidak sesuai target: ['BTCUSDT']"` |
+| Kill switch | `"kill switch aktif"` |
+
+Karena itu **body `posisi` harus selalu saldo asli dari Binance** — itulah yang membuat bot tahu sudah punya
+coin dan tidak membeli dobel. Kalau `posisi` tidak dikirim, Python tidak tahu isi akun dan hanya memberi target
+(tanpa daftar order).
+
+### 4.8 Frekuensi pengecekan: 1× sehari
+
+Semua riset & simulasi memakai **candle harian (1d)** — tidak ada pengecekan per menit/per jam.
+
+```
+00:00 UTC (07:00 WIB)   candle harian tutup
+                        → Python menghitung: risk-on/off, porsi target, kill switch
+open hari berikutnya    → order dieksekusi (simulasi memakai harga open)
+```
+
+- Keputusan **hanya dari harga close harian**; kill switch juga dicek 1× sehari dari nilai modal saat itu.
+- Di antara dua pengecekan bot **diam**, walaupun harga naik-turun di siang hari.
+- Di Rust cukup **1 jadwal per hari** (±07:45 WIB, lihat bagian 10.2). Memanggil `/signal` lebih sering tidak
+  berguna — candle harian belum berubah, jadi jawabannya sama.
 
 ---
 
@@ -346,6 +394,51 @@ GET /recommendations/momentum?limit=10
 
 Rekomendasi aman di-cache di Rust sampai candle harian berikutnya (isinya hanya berubah sekali sehari).
 
+### Aturan posisi: kalau coin muncul lagi besok, beli lagi?
+
+Rekomendasi **tidak dieksekusi otomatis**; ini aturan yang disarankan untuk trader (dan untuk fitur "ikuti
+rekomendasi" kalau nanti dibuat di Rust):
+
+```
+Hari 1   NEAR muncul di daftar        → beli di open besok (hari 2), catat tanggal jual = hari 1 + 14
+Hari 2   NEAR muncul lagi             → JANGAN beli lagi; tetap pegang posisi lama, tanggal jual TIDAK digeser
+Hari 5   NEAR keluar dari daftar      → TETAP pegang (keluar daftar bukan sinyal jual)
+Kapan saja  harga <= beli × 0,75      → jual (stop −25%)
+Hari 15  close                        → jual (14 hari selesai)
+Hari 16  NEAR masih/muncul di daftar  → itu sinyal BARU → boleh beli lagi, hitung 14 hari baru
+```
+
+Ringkasnya: **satu posisi per coin, jual hanya karena 14 hari selesai atau stop −25%**. Coin lain yang
+muncul di daftar boleh dibeli sebagai posisi terpisah (bagi modal rata; hindari > 5 posisi terbuka sekaligus
+kalau modal kecil, karena order minimum Binance 5 USDT).
+
+> ⚠️ **Catatan jujur**: statistik di `historical_stats` dan `/history` menghitung **setiap kemunculan harian
+> sebagai sinyal terpisah** (coin yang muncul 5 hari berturut-turut = 5 sinyal yang tumpang tindih). Aturan
+> "satu posisi per coin" di atas lebih realistis tapi **belum disimulasikan khusus** — akan diuji di notebook
+> riset 07. Hasilnya bisa sedikit berbeda dari angka statistik yang ditampilkan.
+
+### Frekuensi pengecekan rekomendasi
+
+- **Beli**: harga open setelah sinyal · **jual 14 hari**: harga close hari ke-14 → cukup dicek **1× sehari**.
+- **Stop −25%** di simulasi dicek dengan **harga low harian**: kalau harga terendah hari itu menyentuh −25%,
+  dianggap terjual di harga stop (kalau harga dibuka sudah di bawah stop / gap turun → terjual di harga open).
+  Ini **setara dengan order stop-loss di Binance** yang berjaga 24 jam.
+
+Kalau nanti ada fitur "ikuti rekomendasi" di Rust:
+
+- **Disarankan**: begitu beli, langsung pasang order **`STOP_LOSS_LIMIT`** (atau **OCO**) di Binance pada
+  `harga_beli × 0,75`. Binance yang berjaga — Rust tidak perlu memantau harga terus.
+- Alternatif: Rust cek harga tiap 1–5 menit lalu jual kalau harga ≤ stop — lebih boros request dan bisa terlambat
+  kalau harga bergerak cepat.
+
+### Ringkasan frekuensi (bot & rekomendasi)
+
+| | Frekuensi cek | Di simulasi | Di Rust |
+|---|---|---|---|
+| `/signal` (bot) | 1× sehari | close harian → eksekusi di open besok | jadwal ±07:45 WIB |
+| Rekomendasi: beli & jual 14 hari | 1× sehari | open / close harian | jadwal harian |
+| Rekomendasi: stop −25% | sepanjang hari | memakai **low** harian | **order stop-loss di Binance** |
+
 ---
 
 ## 6. `GET /recommendations/momentum/history` — riwayat (paper trading)
@@ -391,10 +484,11 @@ Body error selalu `{"detail": ...}`.
 
 | HTTP | Kapan | `detail` |
 |---|---|---|
+| 401 | header `X-API-Key` tidak ada / salah (kalau `API_KEY` aktif) | `"API key tidak valid atau tidak dikirim (header X-API-Key)"` |
 | 404 | candle/tanggal tidak ada di DB, BTC tidak ada, flex_params kosong | string, mis. `"Tidak ada candle untuk 2030-01-01 di database"` |
-| 422 | validasi body/query gagal (mis. `modal: 0`, `limit: 4`) | **list** objek FastAPI: `[{"loc": ["body","modal"], "msg": "Input should be greater than 0", ...}]` |
+| 422 | validasi body/query gagal (mis. `modal: 0`, `limit: 4`, tanggal bukan `YYYY-MM-DD`, angka `NaN`/`Infinity`, qty negatif, simbol bukan huruf/angka, `posisi` > 100 coin) | **list** objek FastAPI: `[{"loc": ["body","modal"], "msg": "Input should be greater than 0", ...}]` |
 | 422 | histori BTC < 101 hari, coin terskor < 5 | string |
-| 500 | bug / DB putus di tengah request | string |
+| 500 | bug / DB putus di tengah request | `"Terjadi kesalahan di server"` (detail hanya di log Python) |
 
 Di Rust: anggap **semua non-2xx = jangan trading**, log body-nya apa adanya (bisa string atau list).
 

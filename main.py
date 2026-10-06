@@ -37,6 +37,8 @@ async def lifespan(_app: FastAPI):
         logger.error("Gagal konek database: %s", e)
         raise
     logger.info("Database connected successfully")
+    if not settings.api_key:
+        logger.warning("API_KEY kosong -- endpoint terbuka tanpa autentikasi. Isi API_KEY di .env untuk produksi.")
     yield
 
 
@@ -46,8 +48,14 @@ def create_app() -> FastAPI:
         description="Sinyal trading portofolio (BTC-60 / V2-60) dan rekomendasi coin untuk backend Rust",
         version="1.1.0",
         lifespan=lifespan,
+        docs_url="/docs" if settings.enable_docs else None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if settings.enable_docs else None,
     )
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    # API ini dipanggil server-ke-server (backend Rust), jadi CORS mati kecuali origin browser didaftarkan.
+    if settings.cors_origins:
+        app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
+                           allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-API-Key"])
     register_error_handlers(app)
     app.include_router(api_router)
     return app
