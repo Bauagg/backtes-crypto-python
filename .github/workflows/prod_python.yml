@@ -1,0 +1,243 @@
+# CI/CD environment PRODUCTION (branch `production` + tag rilis) — API Python.
+#
+#   Pull request ke production -> CI saja: lint + smoke test + audit + cek Dockerfile bisa di-build.
+#                                 Tidak ada yang di-push/deploy — PR gagal = jangan di-merge.
+#   Push tag rilis vX.Y.Z      -> pastikan commit tag ada di branch `production`, lalu CI, build
+#                                 image & push ke GHCR (tag vX.Y.Z), deploy ke VPS prod,
+#                                 dan buat GitHub Release.
+#
+# Cara rilis (setelah PR ke production di-merge):
+#   git checkout production && git pull
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# Secrets: dev & prod ada di VPS yang sama, jadi koneksi SSH memakai secret dev (DEV_VPS_HOST,
+# DEV_VPS_USER, DEV_VPS_SSH_KEY, DEV_VPS_PORT). Khusus prod cukup 1 secret:
+#   PROD_VPS_APP_DIR   folder API Python prod di VPS, berisi .env.docker (mis. /root/app/backtes-crypto-prod)
+# Push ke GHCR memakai GITHUB_TOKEN bawaan — tidak perlu secret tambahan.
+
+name: Prod - Python CI/CD
+
+on:
+  pull_request:
+    branches: ["production"]
+  push:
+    tags: ["v*.*.*"]
+
+# Rilis tidak dibatalkan di tengah jalan (deploy prod setengah jadi berbahaya); antre satu per satu.
+concurrency:
+  group: prod-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/bauagg/backtes-crypto-python
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  # -------------------------------------------------------------------------------------------
+  # 0. Tag rilis hanya sah kalau commit-nya sudah ada di branch production (sudah lewat PR).
+  # -------------------------------------------------------------------------------------------
+  guard:
+    name: Cek tag dari branch production
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Commit tag harus ada di production
+        run: |
+          git fetch origin production
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/production; then
+            echo "::error::Tag ${GITHUB_REF_NAME} menunjuk commit yang belum ada di branch production. Merge dulu ke production, lalu buat tag dari sana."
+            exit 1
+          fi
+          echo "OK: ${GITHUB_REF_NAME} (${GITHUB_SHA::7}) ada di branch production"
+
+  # -------------------------------------------------------------------------------------------
+  # 1. CI: lint, smoke test (tanpa DB), audit keamanan dependency.
+  # -------------------------------------------------------------------------------------------
+  check:
+    name: Lint & smoke test
+    needs: guard
+    # Jalan untuk PR (guard dilewati) maupun tag (guard harus lolos).
+    if: always() && (needs.guard.result == 'success' || needs.guard.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-api.txt
+
+      - name: Install dependency runtime
+        run: pip install -r requirements-api.txt ruff pip-audit
+
+      - name: Lint (ruff)
+        run: ruff check main.py src --select E9,F63,F7,F82 --output-format github
+
+      - name: Smoke test API
+        env:
+          API_KEY: ci-test-key
+          ENABLE_DOCS: "false"
+        run: |
+          python - <<'EOF'
+          from fastapi.testclient import TestClient
+          import main
+
+          c = TestClient(main.app, raise_server_exceptions=False)
+          H = {"X-API-Key": "ci-test-key"}
+          cases = [
+              ("tanpa API key -> 401", c.get("/recommendations/momentum").status_code, 401),
+              ("API key salah -> 401", c.post("/signal", json={"modal": 1}, headers={"X-API-Key": "x"}).status_code, 401),
+              ("modal 0 -> 422", c.post("/signal", json={"modal": 0}, headers=H).status_code, 422),
+              ("modal Infinity -> 422", c.post("/signal", json={"modal": "Infinity"}, headers=H).status_code, 422),
+              ("qty negatif -> 422", c.post("/signal", json={"modal": 1e6, "posisi": {"BTCUSDT": -1}}, headers=H).status_code, 422),
+              ("simbol aneh -> 422", c.post("/signal", json={"modal": 1e6, "posisi": {"x;drop": 1}}, headers=H).status_code, 422),
+              ("tanggal salah -> 422", c.get("/recommendations/momentum?date=abc", headers=H).status_code, 422),
+              ("limit 4 -> 422", c.get("/recommendations/momentum?limit=4", headers=H).status_code, 422),
+              ("docs mati -> 404", c.get("/docs").status_code, 404),
+          ]
+          failed = [name for name, got, want in cases if got != want]
+          for name, got, want in cases:
+              print(("OK  " if got == want else "GAGAL"), name, f"(dapat {got})")
+          raise SystemExit(f"{len(failed)} smoke test gagal: {failed}" if failed else 0)
+          EOF
+
+      # Di prod CVE dependency MENGGAGALKAN rilis (di dev hanya peringatan).
+      - name: Audit dependency
+        run: pip-audit -r requirements-api.txt
+
+  # -------------------------------------------------------------------------------------------
+  # 2. Image Docker. PR: hanya dicek bisa di-build. Tag rilis: push ke GHCR (vX.Y.Z).
+  # -------------------------------------------------------------------------------------------
+  image:
+    name: Docker image
+    needs: check
+    if: always() && needs.check.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' }}
+          # Prod murni berdasarkan versi: 1 tag = 1 image (v1.0.0, v1.0.1, ...), tidak ada `latest`.
+          tags: ${{ env.IMAGE_NAME }}:${{ github.event_name == 'push' && github.ref_name || 'pr-check' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------------------------------------------
+  # 3. Deploy ke VPS prod (hanya tag rilis).
+  # -------------------------------------------------------------------------------------------
+  deploy:
+    name: Deploy production
+    needs: image
+    if: always() && needs.image.result == 'success' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # Bisa diberi persetujuan manual: Settings -> Environments -> production -> Required reviewers.
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cek secret SSH
+        env:
+          SSH_KEY: ${{ secrets.DEV_VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.DEV_VPS_HOST }}
+          VPS_USER: ${{ secrets.DEV_VPS_USER }}
+          APP_DIR: ${{ secrets.PROD_VPS_APP_DIR }}
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          [ -n "$VPS_HOST" ] || fail "Secret DEV_VPS_HOST kosong / tidak ditemukan"
+          [ -n "$VPS_USER" ] || fail "Secret DEV_VPS_USER kosong / tidak ditemukan"
+          [ -n "$APP_DIR" ]  || fail "Secret PROD_VPS_APP_DIR kosong / tidak ditemukan"
+          [ -n "$SSH_KEY" ]  || fail "Secret DEV_VPS_SSH_KEY kosong / tidak ditemukan"
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > "$RUNNER_TEMP/deploy_key"
+          chmod 600 "$RUNNER_TEMP/deploy_key"
+          head -1 "$RUNNER_TEMP/deploy_key" | grep -q -- "-----BEGIN" \
+            || fail "DEV_VPS_SSH_KEY tidak diawali baris -----BEGIN OPENSSH PRIVATE KEY-----"
+          grep -q -- "-----END" "$RUNNER_TEMP/deploy_key" \
+            || fail "DEV_VPS_SSH_KEY tidak diakhiri baris -----END OPENSSH PRIVATE KEY-----"
+          ssh-keygen -lf "$RUNNER_TEMP/deploy_key" \
+            || fail "DEV_VPS_SSH_KEY bukan private key yang valid"
+          rm -f "$RUNNER_TEMP/deploy_key"
+
+      - name: Kirim docker-compose.yml ke VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_VPS_HOST }}
+          username: ${{ secrets.DEV_VPS_USER }}
+          key: ${{ secrets.DEV_VPS_SSH_KEY }}
+          port: ${{ secrets.DEV_VPS_PORT || 22 }}
+          source: docker-compose.yml
+          target: ${{ secrets.PROD_VPS_APP_DIR }}
+
+      - name: Pull image & restart API
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_TAG: ${{ github.ref_name }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_DIR: ${{ secrets.PROD_VPS_APP_DIR }}
+        with:
+          host: ${{ secrets.DEV_VPS_HOST }}
+          username: ${{ secrets.DEV_VPS_USER }}
+          key: ${{ secrets.DEV_VPS_SSH_KEY }}
+          port: ${{ secrets.DEV_VPS_PORT || 22 }}
+          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN,APP_DIR
+          script: |
+            set -e
+            cd "$APP_DIR"
+            test -f .env.docker || { echo ".env.docker belum ada di $APP_DIR"; exit 1; }
+            # Variabel compose environment prod — container treding-prod-api, port debug 127.0.0.1:8081,
+            # supaya tidak bentrok dengan dev di VPS yang sama. Rust prod memanggil http://treding-prod-api:8080.
+            printf 'IMAGE_TAG=%s\nCONTAINER_PREFIX=treding-prod\nAPI_PORT_HOST=8081\n' "$IMAGE_TAG" > .env
+            docker network inspect data-net >/dev/null 2>&1 || docker network create data-net
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            docker compose pull api
+            docker compose up -d --no-build --remove-orphans
+            docker logout ghcr.io
+            docker image prune -f
+            sleep 8
+            docker compose ps
+            docker compose logs --tail 30 api
+            curl -fsS --retry 5 --retry-delay 3 --retry-all-errors http://127.0.0.1:8081/health
+
+  # -------------------------------------------------------------------------------------------
+  # 4. GitHub Release untuk tag ini (catatan rilis otomatis dari commit/PR sejak rilis sebelumnya).
+  # -------------------------------------------------------------------------------------------
+  release:
+    name: GitHub Release
+    needs: deploy
+    if: always() && needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            Image: `ghcr.io/bauagg/backtes-crypto-python:${{ github.ref_name }}`

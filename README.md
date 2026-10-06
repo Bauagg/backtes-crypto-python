@@ -140,6 +140,17 @@ docker compose up -d --build            # build lokal; di VPS CI/CD menarik imag
 - Backend Rust memanggil `http://treding-api:8080` dengan header `X-API-Key` = `API_KEY` di `.env.docker`.
 - Container berjalan sebagai user non-root, filesystem read-only, dengan healthcheck ke `/health`.
 
+### CI/CD (GitHub Actions, sama pola dengan repo Rust)
+
+| Workflow | Pemicu | Hasil |
+|---|---|---|
+| `dev_python.yml` | PR / push ke `main` (hanya kalau `main.py`, `src/`, Dockerfile, dll. berubah) | lint + smoke test + audit → image `ghcr.io/bauagg/backtes-crypto-python:sha-xxxxxxx` → deploy VPS dev (`treding-api`, 127.0.0.1:8080) |
+| `prod_python.yml` | PR ke `production` / tag `vX.Y.Z` dari branch `production` | sama + audit CVE wajib lolos → image `:vX.Y.Z` → deploy VPS prod (`treding-prod-api`, 127.0.0.1:8081) + GitHub Release |
+
+Secrets repo ini: `DEV_VPS_HOST`, `DEV_VPS_USER`, `DEV_VPS_SSH_KEY`, `DEV_VPS_PORT` (sama dengan repo Rust),
+`DEV_VPS_APP_DIR`, `PROD_VPS_APP_DIR` (folder API Python di VPS, berisi `.env.docker`). Environments GitHub:
+`dev` dan `production`.
+
 ## Analisis (notebooks)
 
 ```powershell

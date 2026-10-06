@@ -28,7 +28,7 @@ services:
     # Lokal: `docker compose up -d --build` membangun dari Dockerfile.
     # VPS: CI/CD menarik image jadi dari GHCR tanpa build.
     build: .
-    image: ghcr.io/bauagg/backtes-crypto:${IMAGE_TAG:-dev}
+    image: ghcr.io/bauagg/backtes-crypto-python:${IMAGE_TAG:-dev}
     container_name: ${CONTAINER_PREFIX:-treding}-api
     restart: unless-stopped
     env_file: .env.docker
