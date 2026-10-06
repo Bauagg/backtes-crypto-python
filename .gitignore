@@ -6,3 +6,4 @@ notebooks/data/processed/*
 !notebooks/data/processed/.gitkeep
 *.egg-info/
 .env
+.env.docker

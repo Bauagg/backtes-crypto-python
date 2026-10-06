@@ -23,7 +23,8 @@ Python tidak menyimpan state apa pun. Semua jawaban dihitung ulang dari DB setia
 
 | | |
 |---|---|
-| Base URL | `http://<host>:8080` (port dari `.env` `API_PORT`; Rust sendiri di port 8000) |
+| Base URL | lokal: `http://localhost:8080` · **Docker/VPS: `http://treding-api:8080`** (nama container di network `data-net`; prod: `http://treding-prod-api:8080`) |
+| Env di Rust (saran) | `PYTHON_API_URL` = base URL di atas, `PYTHON_API_KEY` = `API_KEY` di `.env.docker` Python |
 | Format | JSON, UTF-8 |
 | Auth | header **`X-API-Key: <API_KEY>`** di semua request kecuali `/health` (aktif kalau `API_KEY` diisi di `.env` Python). Salah/tidak ada → **401** |
 | Dokumentasi interaktif | `http://<host>:8080/docs` (Swagger, bisa coba langsung) |
@@ -515,6 +516,132 @@ GET http://localhost:8080/recommendations/momentum?limit=10      → 200, 10 coi
 GET http://localhost:8080/recommendations/momentum?limit=4       → 422
 GET http://localhost:8080/recommendations/momentum?date=2030-01-01 → 404
 GET http://localhost:8080/recommendations/momentum/history?days=30 → 200
+```
+
+### 8.1 Koleksi curl (siap import ke Postman)
+
+Format bash. **Postman → Import → Raw text → tempel satu blok curl** — request langsung jadi, lengkap dengan
+header & body. Variabel `{{base_url}}` dan `{{api_key}}` otomatis terbaca sebagai variabel Postman; isi
+sekali di **Environment**:
+
+| Variable | Nilai |
+|---|---|
+| `base_url` | `http://localhost:8080` |
+| `api_key` | nilai `API_KEY` di `.env` Python |
+
+Semua endpoint kecuali `/health` wajib header `X-API-Key`; tanpa itu → **401**.
+
+**Health** (tanpa key)
+```bash
+curl --location '{{base_url}}/health'
+```
+
+**Rekomendasi hari ini (10 coin)**
+```bash
+curl --location '{{base_url}}/recommendations/momentum?limit=10' \
+  --header 'X-API-Key: {{api_key}}'
+```
+
+**Rekomendasi tanggal tertentu (5 coin)**
+```bash
+curl --location '{{base_url}}/recommendations/momentum?limit=5&date=2026-09-30' \
+  --header 'X-API-Key: {{api_key}}'
+```
+
+**Riwayat / paper trading 30 hari**
+```bash
+curl --location '{{base_url}}/recommendations/momentum/history?days=30' \
+  --header 'X-API-Key: {{api_key}}'
+```
+
+**Signal — produksi (body yang dikirim Rust tiap hari)**
+```bash
+curl --location '{{base_url}}/signal' \
+  --header 'Content-Type: application/json' \
+  --header 'X-API-Key: {{api_key}}' \
+  --data '{
+    "modal": 2000000,
+    "modal_awal": 2000000,
+    "kurs_usdt_idr": 16300,
+    "posisi": { "BTCUSDT": 0.0005, "ETHUSDT": 0.01 },
+    "cash_usdt": 60
+  }'
+```
+
+**Signal — modal kecil (BTC-60)**
+```bash
+curl --location '{{base_url}}/signal' \
+  --header 'Content-Type: application/json' \
+  --header 'X-API-Key: {{api_key}}' \
+  --data '{ "modal": 1000000 }'
+```
+
+**Signal — user baru, belum punya coin**
+```bash
+curl --location '{{base_url}}/signal' \
+  --header 'Content-Type: application/json' \
+  --header 'X-API-Key: {{api_key}}' \
+  --data '{ "modal": 2000000, "modal_awal": 2000000, "posisi": {}, "cash_usdt": 122 }'
+```
+
+**Signal — kill switch (modal turun > 30%)**
+```bash
+curl --location '{{base_url}}/signal' \
+  --header 'Content-Type: application/json' \
+  --header 'X-API-Key: {{api_key}}' \
+  --data '{ "modal": 1300000, "modal_awal": 2000000 }'
+```
+
+**Signal — replay hari risk-on (khusus tes)**
+```bash
+curl --location '{{base_url}}/signal' \
+  --header 'Content-Type: application/json' \
+  --header 'X-API-Key: {{api_key}}' \
+  --data '{ "modal": 2000000, "posisi": {}, "cash_usdt": 122, "tanggal": "2025-07-15" }'
+```
+
+**Tes error** (harus 422 / 404 / 401)
+```bash
+# 422 — modal harus > 0
+curl --location '{{base_url}}/signal' \
+  --header 'Content-Type: application/json' \
+  --header 'X-API-Key: {{api_key}}' \
+  --data '{ "modal": 0 }'
+
+# 422 — limit minimal 5
+curl --location '{{base_url}}/recommendations/momentum?limit=4' \
+  --header 'X-API-Key: {{api_key}}'
+
+# 404 — tanggal tidak ada di DB
+curl --location '{{base_url}}/recommendations/momentum?date=2030-01-01' \
+  --header 'X-API-Key: {{api_key}}'
+
+# 401 — tanpa API key
+curl --location '{{base_url}}/recommendations/momentum'
+```
+
+Hasil yang diharapkan (dicek 6 Okt 2026, candle terakhir 2026-10-03):
+
+| Request | HTTP | Isi penting |
+|---|---|---|
+| health | 200 | `"database": "connected"` |
+| rekomendasi `limit=10` / `limit=5` | 200 | 10 / 5 coin, tiap coin ada `id`, `image_url`, `group` |
+| history `days=30` | 200 | `summary` + `history[]` |
+| signal produksi | 200 | `strategi: "V23"`, `order` SELL dulu lalu BUY |
+| signal modal kecil | 200 | `strategi: "BTC-60"`, `order: null` (tanpa `posisi`) |
+| signal user baru | 200 | daftar BUY (kalau risk-on) |
+| signal kill switch | 200 | `status: "STOP"`, `kill_switch.aktif: true` |
+| signal replay 2025-07-15 | 200 | `status: "RISK_ON"`, 8 order BUY |
+| `modal: 0` / `limit=4` | 422 | `detail` = list error validasi |
+| `date=2030-01-01` | 404 | `"Tidak ada candle untuk 2030-01-01 di database"` |
+| tanpa key | 401 | `"API key tidak valid atau tidak dikirim (header X-API-Key)"` |
+
+**Di terminal (bukan Postman)**: ganti `{{base_url}}` & `{{api_key}}` dengan nilai asli. Di Windows PowerShell
+pakai `curl.exe` (bukan `curl`) dan body JSON lewat file (`-d "@body.json"`) supaya tanda kutip tidak rusak:
+
+```powershell
+$KEY = (Select-String -Path .env -Pattern '^API_KEY=(.*)').Matches.Groups[1].Value
+curl.exe -H "X-API-Key: $KEY" "http://localhost:8080/recommendations/momentum?limit=10"
 ```
 
 ---

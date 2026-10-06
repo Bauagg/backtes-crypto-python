@@ -124,6 +124,22 @@ Saat start, backend cek koneksi DB dulu. **Kalau DB tidak bisa dihubungi, server
 (sama seperti template Express). Sesi DB dibuka **read-only** dengan batas waktu query 15 detik, jadi Python
 tidak bisa menulis ke DB Rust walaupun ada bug. Dokumentasi interaktif: `http://localhost:<API_PORT>/docs`.
 
+## Docker (VPS)
+
+Image hanya berisi backend (`main.py`, `src/`, dependency di `requirements-api.txt`). `notebooks/`, `docs/`,
+`.env` dan `venv/` tidak ikut (`.dockerignore` berbentuk whitelist).
+
+```bash
+cp .env.docker.example .env.docker      # isi DATABASE_URL (host = nama container Postgres) & API_KEY
+docker network create data-net          # sekali saja; sama dengan compose backend Rust
+docker compose up -d --build            # build lokal; di VPS CI/CD menarik image dari GHCR
+```
+
+- Container `treding-api` hanya masuk network `data-net` (Postgres + backend Rust), tidak dibuka ke internet.
+  Port 8080 hanya di `127.0.0.1` VPS untuk debug.
+- Backend Rust memanggil `http://treding-api:8080` dengan header `X-API-Key` = `API_KEY` di `.env.docker`.
+- Container berjalan sebagai user non-root, filesystem read-only, dengan healthcheck ke `/health`.
+
 ## Analisis (notebooks)
 
 ```powershell

@@ -1,0 +1,57 @@
+# API Python (sinyal trading & rekomendasi) — dipanggil backend Rust lewat network `data-net`.
+#
+#   cp .env.docker.example .env.docker      # isi DATABASE_URL & API_KEY
+#
+# VPS (Postgres & backend Rust SUDAH jalan sebagai container lain di network `data-net`):
+#   docker compose up -d
+#   Rust memanggil:  http://<CONTAINER_PREFIX>-api:8080   (mis. http://treding-api:8080)
+#
+# Laptop: network dibuat sekali (sama dengan compose Rust), lalu build lokal:
+#   docker network create data-net
+#   docker compose up -d --build
+#
+# Dev & prod bisa berdampingan di 1 VPS (folder berbeda), sama seperti compose Rust. File `.env`
+# (bukan `.env.docker`) di folder yang sama, ditulis CI/CD saat deploy:
+#   IMAGE_TAG        tag image GHCR (dev: sha-xxxxxxx, prod: v1.2.3)
+#   CONTAINER_PREFIX awalan nama container (dev: treding, prod: treding-prod)
+#   API_PORT_HOST    port di 127.0.0.1 VPS untuk debug (dev: 8080, prod: 8081)
+
+# Batas log per container: maks 3 file × 10 MB, yang lama otomatis terhapus — disk tidak penuh.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    # Lokal: `docker compose up -d --build` membangun dari Dockerfile.
+    # VPS: CI/CD menarik image jadi dari GHCR tanpa build.
+    build: .
+    image: ghcr.io/bauagg/backtes-crypto:${IMAGE_TAG:-dev}
+    container_name: ${CONTAINER_PREFIX:-treding}-api
+    restart: unless-stopped
+    env_file: .env.docker
+    # Hanya bisa diakses dari VPS itu sendiri (untuk curl/debug). Rust tidak lewat port ini, tapi
+    # langsung ke nama container di network data-net. API ini TIDAK perlu dibuka ke internet.
+    ports:
+      - "127.0.0.1:${API_PORT_HOST:-8080}:8080"
+    # Container root filesystem read-only: kode tidak bisa diubah dari dalam container.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    logging: *default-logging
+    # Hanya data-net (Postgres + backend Rust). Tidak masuk proxy-net: tidak dijangkau Nginx/internet.
+    networks: [data-net]
+
+# External, dipakai bersama compose Rust — dibuat sekali:  docker network create data-net
+networks:
+  data-net:
+    name: data-net
+    external: true

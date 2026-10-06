@@ -1,0 +1,11 @@
+# Whitelist: abaikan SEMUA, lalu masukkan hanya yang dibutuhkan backend.
+# notebooks/ (data CSV ratusan MB), docs/, venv/, .env, .git, README tidak ikut ke image.
+*
+
+!main.py
+!src/
+!requirements-api.txt
+
+# cache Python di dalam src/
+**/__pycache__
+**/*.pyc
