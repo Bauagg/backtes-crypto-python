@@ -135,8 +135,9 @@ docker network create data-net          # sekali saja; sama dengan compose backe
 docker compose up -d --build            # build lokal; di VPS CI/CD menarik image dari GHCR
 ```
 
-- Container `treding-api` hanya masuk network `data-net` (Postgres + backend Rust), tidak dibuka ke internet.
-  Port 8080 hanya di `127.0.0.1` VPS untuk debug.
+- Container `treding-api` masuk network `data-net` (Postgres + dipanggil backend Rust) dan `proxy-net`
+  (dijangkau Nginx Proxy Manager: Forward Hostname `treding-api`, port `8080`). Port host hanya `127.0.0.1` untuk debug.
+  Kalau dibuka lewat domain, pengamannya `API_KEY` — wajib diisi.
 - Backend Rust memanggil `http://treding-api:8080` dengan header `X-API-Key` = `API_KEY` di `.env.docker`.
 - Container berjalan sebagai user non-root, filesystem read-only, dengan healthcheck ke `/health`.
 

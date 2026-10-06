@@ -213,7 +213,7 @@ jobs:
             # Variabel compose environment prod — container treding-prod-api, port debug 127.0.0.1:8081,
             # supaya tidak bentrok dengan dev di VPS yang sama. Rust prod memanggil http://treding-prod-api:8080.
             printf 'IMAGE_TAG=%s\nCONTAINER_PREFIX=treding-prod\nAPI_PORT_HOST=8081\n' "$IMAGE_TAG" > .env
-            docker network inspect data-net >/dev/null 2>&1 || docker network create data-net
+            for net in proxy-net data-net; do docker network inspect "$net" >/dev/null 2>&1 || docker network create "$net"; done
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             docker compose pull api
             docker compose up -d --no-build --remove-orphans

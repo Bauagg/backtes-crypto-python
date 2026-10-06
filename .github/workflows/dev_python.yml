@@ -219,7 +219,7 @@ jobs:
             # Variabel compose environment dev — container treding-api, port debug 127.0.0.1:8080.
             # Backend Rust dev memanggil http://treding-api:8080 lewat network data-net.
             printf 'IMAGE_TAG=%s\nCONTAINER_PREFIX=treding\nAPI_PORT_HOST=8080\n' "$IMAGE_TAG" > .env
-            docker network inspect data-net >/dev/null 2>&1 || docker network create data-net
+            for net in proxy-net data-net; do docker network inspect "$net" >/dev/null 2>&1 || docker network create "$net"; done
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             docker compose pull api
             docker compose up -d --no-build --remove-orphans
